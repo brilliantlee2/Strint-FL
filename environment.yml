@@ -1,0 +1,33 @@
+name: strint-rust
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - rust>=1.82
+  - pip
+  - pkg-config
+  - cmake
+  - make
+  - c-compiler
+  - cxx-compiler
+  - openssl
+  - libcurl
+  - zlib
+  - bzip2
+  - xz
+  - samtools
+  - minimap2
+  - bedtools
+  - pandas
+  - numpy
+  - matplotlib
+  - seaborn
+  - pysam
+  - tqdm
+  - networkx
+  - editdistance
+  - pip:
+      - bioframe
+      - fast-edit-distance
+
