@@ -44,8 +44,8 @@ tests/                     发布结构和报告测试
 使用 Git：
 
 ```bash
-git clone <repository-url> StrintRust0.0.3.5
-cd StrintRust0.0.3.5
+git clone https://github.com/brilliantlee2/Strint-FL.git
+cd Strint-FL
 ```
 
 也可以在 GitHub 下载 Source code ZIP，解压后进入项目目录。
@@ -211,7 +211,7 @@ set -euo pipefail
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate strint-rust
 
-bash /path/to/StrintRust0.0.3.5/run_all.sh \
+bash /path/to/Strint-FL/run_all.sh \
   --fastq /data/sample.fastq.gz \
   --barcode-list-10bp /data/BC_1536.txt \
   --ref-dir /data/GRCh38_strint \
