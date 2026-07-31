@@ -1,0 +1,14 @@
+pandas
+numpy
+matplotlib
+seaborn
+pysam
+tqdm
+networkx
+editdistance
+bioframe
+fast-edit-distance
+scanpy>=1.12,<1.13
+numba>=0.65
+igraph
+leidenalg

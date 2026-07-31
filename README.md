@@ -82,11 +82,41 @@ If `bioframe` or `fast-edit-distance` cannot be solved by Conda on a restricted 
 python -m pip install bioframe fast-edit-distance
 ```
 
-For an existing Python 3.11 environment, Python dependencies can instead be installed with:
+For an existing standard CPython 3.14 environment, Python dependencies can
+instead be installed with:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
+
+RNA Cluster Analysis adds these direct Python dependencies:
+
+```text
+scanpy>=1.12,<1.13
+numba>=0.65
+igraph
+leidenalg
+```
+
+With Conda, the `igraph` package is named `python-igraph`:
+
+```bash
+conda install -c conda-forge \
+  "scanpy>=1.12,<1.13" \
+  "numba>=0.65" \
+  python-igraph \
+  leidenalg
+```
+
+Verify the clustering dependencies with:
+
+```bash
+python -c "import scanpy, numba, igraph, leidenalg; print(scanpy.__version__)"
+```
+
+Standard CPython 3.14 is the supported target. The free-threading `3.14t`
+build is not the default supported environment because native extensions such
+as pysam may re-enable the GIL and have not all declared free-threading safety.
 
 ### 3. Build the Rust binaries
 
@@ -233,6 +263,12 @@ Cluster resource names and policies vary; confirm `vf`, `p`, parallel-environmen
 ## Outputs
 
 The main output directory contains `upstream/`, `alignment/`, `matrix/`, `qc/`, and `logs/`. Key outputs include final read-to-cell assignments, tagged BAM files, gene/isoform expression matrices, RNA QC tables, saturation results, and a self-contained single-cell HTML report.
+
+RNA clustering produces `matrix/<sample-id>.rna_cluster.tsv`. It preserves every
+final cell and records UMAP coordinates, Leiden cluster, raw UMI count, and
+analysis status. The report renders the same coordinates as an RNA-cluster UMAP
+and a raw-UMI UMAP in **Cells > RNA Cluster Analysis**. The first Scanpy run in a
+new environment may take longer while Numba initializes its cache.
 
 ## Tests
 

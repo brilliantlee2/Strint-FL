@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--read-qc-json", required=True)
     parser.add_argument("--parameters-tsv", required=True)
     parser.add_argument("--per-cell-qc-tsv", required=True)
+    parser.add_argument("--rna-cluster-tsv", required=True)
     parser.add_argument("--barcode-counts-3p-tsv", default=None)
     parser.add_argument("--barcode-counts-5p-tsv", default=None)
     parser.add_argument("--whitelist-3p", default=None)
@@ -457,6 +458,58 @@ def dataframe_payload(df):
     return {col: df[col].tolist() for col in df.columns}
 
 
+def rna_cluster_payload(path):
+    required_columns = [
+        "cell",
+        "UMAP_1",
+        "UMAP_2",
+        "leiden",
+        "total_counts",
+        "status",
+    ]
+    frame = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    if frame.columns.tolist() != required_columns:
+        raise ValueError(
+            "RNA cluster TSV must contain exactly: " + ", ".join(required_columns)
+        )
+
+    rows = []
+    seen_cells = set()
+    for row in frame.itertuples(index=False, name=None):
+        cell, umap_1, umap_2, leiden, total_counts, status = row
+        if not cell or cell in seen_cells:
+            raise ValueError("RNA cluster TSV contains a blank or duplicate cell")
+        seen_cells.add(cell)
+        coordinates = [float(umap_1), float(umap_2)]
+        if not all(math.isfinite(value) for value in coordinates):
+            raise ValueError("RNA cluster TSV contains a non-finite UMAP coordinate")
+        count = int(total_counts)
+        if count < 0:
+            raise ValueError("RNA cluster TSV contains a negative total_counts value")
+        rows.append(
+            {
+                "cell": cell,
+                "UMAP_1": coordinates[0],
+                "UMAP_2": coordinates[1],
+                "leiden": leiden,
+                "total_counts": count,
+                "status": status,
+            }
+        )
+    return rows
+
+
+def script_safe_json(value):
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def safe_read_json(path):
     if not path or not Path(path).exists():
         return {}
@@ -750,6 +803,18 @@ def new_report_markup(sections):
         </div>
       </div>
     </section>
+
+    <section class="section-card report-section" data-library-content="gene-expression">
+      {sections["rna_cluster_bar"]}
+      <div class="report-grid two">
+        <div class="plot-panel">
+          <div id="rna-cluster-assignment" class="dynamic-plot-wide"></div>
+        </div>
+        <div class="plot-panel">
+          <div id="rna-umi-counts" class="dynamic-plot-wide"></div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="tab-pane" id="library-tab">
@@ -782,7 +847,7 @@ def new_report_markup(sections):
 def build_html(args, payload, sections):
     report_body = new_report_markup(sections) + f"""
 <script>
-  const payload = {json.dumps(payload, ensure_ascii=False)};
+  const payload = {script_safe_json(payload)};
   const plotConfig = {{
     responsive: true,
     displaylogo: false,
@@ -993,6 +1058,62 @@ def build_html(args, payload, sections):
   const beadsNote = document.getElementById("beads-note");
   if (beadsNote) beadsNote.textContent = `${{(payload.beads.n_cells || 0).toLocaleString()}} cells summarized from read_assigned_cell.csv.`;
 
+  const rnaCells = payload.rnaCluster || [];
+  const rnaTraceType = rnaCells.length > 2000 ? "scattergl" : "scatter";
+  const clusterLabels = [...new Set(rnaCells.map(row => row.leiden))].sort((a, b) => {{
+    if (a === "unassigned") return 1;
+    if (b === "unassigned") return -1;
+    return String(a).localeCompare(String(b), undefined, {{numeric: true}});
+  }});
+  const clusterPalette = ["#3274A1", "#E1812C", "#3A923A", "#C03D3E", "#9372B2", "#845B53", "#D684BD", "#7F7F7F", "#A9AA35", "#2EABB8"];
+  const clusterTraces = clusterLabels.map((label, index) => {{
+    const rows = rnaCells.filter(row => row.leiden === label);
+    return {{
+      x: rows.map(row => row.UMAP_1),
+      y: rows.map(row => row.UMAP_2),
+      text: rows.map(row => row.cell),
+      customdata: rows.map(row => row.total_counts),
+      type: rnaTraceType,
+      mode: "markers",
+      name: label === "unassigned" ? "Unassigned" : `Cluster ${{label}}`,
+      marker: {{
+        color: label === "unassigned" ? "#B7BDC5" : clusterPalette[index % clusterPalette.length],
+        size: rnaCells.length > 20000 ? 3 : 5,
+        opacity: 0.82
+      }},
+      hovertemplate: "Cell: %{{text}}<br>Cluster: " + label + "<br>UMIs: %{{customdata:,.0f}}<extra></extra>"
+    }};
+  }});
+  const umapLayout = {{
+    height: 440,
+    margin: {{t: 55, l: 35, r: 20, b: 35}},
+    xaxis: {{title: {{text: "UMAP 1"}}, showgrid: false, zeroline: false, showticklabels: false, ticks: ""}},
+    yaxis: {{title: {{text: "UMAP 2"}}, showgrid: false, zeroline: false, showticklabels: false, ticks: "", scaleanchor: "x", scaleratio: 1}}
+  }};
+  plotIf("rna-cluster-assignment", clusterTraces, Object.assign({{}}, umapLayout, {{
+    title: {{text: "RNA clusters", font: {{size: 14}}}},
+    legend: {{orientation: "v", x: 1.01, y: 1}}
+  }}));
+  plotIf("rna-umi-counts", [{{
+    x: rnaCells.map(row => row.UMAP_1),
+    y: rnaCells.map(row => row.UMAP_2),
+    text: rnaCells.map(row => row.cell),
+    customdata: rnaCells.map(row => row.leiden),
+    type: rnaTraceType,
+    mode: "markers",
+    showlegend: false,
+    marker: {{
+      color: rnaCells.map(row => row.total_counts),
+      colorscale: "Viridis",
+      size: rnaCells.length > 20000 ? 3 : 5,
+      opacity: 0.85,
+      colorbar: {{title: {{text: "UMI count"}}}}
+    }},
+    hovertemplate: "Cell: %{{text}}<br>Cluster: %{{customdata}}<br>UMIs: %{{marker.color:,.0f}}<extra></extra>"
+  }}], Object.assign({{}}, umapLayout, {{
+    title: {{text: "UMI count", font: {{size: 14}}}}
+  }}));
+
   const sat = payload.saturation || {{}};
   plotIf("saturation-genes", [{{x: sat.reads_per_cell || [], y: sat.genes_per_cell || [], type: "scatter", mode: "lines", line: {{color: "#337ab7", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
     height: 400,
@@ -1029,6 +1150,7 @@ def main():
     saturation_df = read_tsv(args.saturation_tsv)
     params = read_parameters(args.parameters_tsv)
     read_qc = safe_read_json(args.read_qc_json)
+    rna_clusters = rna_cluster_payload(args.rna_cluster_tsv)
 
     read_summary_rows, total_reads = build_read_summary(report_df, qc_df, args.skip_glycine, args.glycine_stats)
     per_cell = per_cell_payload(args.per_cell_qc_tsv)
@@ -1068,6 +1190,7 @@ def main():
         "barcodeRank3p": barcode_rank_payload(args.barcode_counts_3p_tsv, args.whitelist_3p),
         "barcodeRank5p": barcode_rank_payload(args.barcode_counts_5p_tsv, args.whitelist_5p),
         "beads": beads_per_droplet_payload(args.read_assigned_cell),
+        "rnaCluster": rna_clusters,
     }
 
     sections = {
@@ -1111,6 +1234,16 @@ def main():
                 ("Right", "Distribution of the number of unique corrected barcodes associated with each final cell."),
             ]),
             width_px=230,
+        ),
+        "rna_cluster_bar": pbmc_section_bar(
+            "RNA Cluster Analysis",
+            "rna-cluster-detail",
+            help_dl([
+                ("RNA clusters", "Leiden communities calculated from normalized gene-expression profiles and displayed on a Scanpy UMAP embedding."),
+                ("UMI count", "The same UMAP embedding colored by each cell's raw total UMI count."),
+                ("Unassigned", "Final cells with zero detected gene-expression UMIs are retained in the report but excluded from Scanpy model fitting."),
+            ]),
+            width_px=300,
         ),
         "sequencing_bar": pbmc_section_bar(
             "Sequencing",

@@ -82,11 +82,40 @@ bedtools --version
 python -m pip install bioframe fast-edit-distance
 ```
 
-如果已经存在 Python 3.11 环境，也可以单独安装 Python 依赖：
+如果已经存在普通 CPython 3.14 环境，也可以单独安装 Python 依赖：
 
 ```bash
 python -m pip install -r requirements.txt
 ```
+
+RNA Cluster Analysis 新增以下直接 Python 依赖：
+
+```text
+scanpy>=1.12,<1.13
+numba>=0.65
+igraph
+leidenalg
+```
+
+在 Conda 中，`igraph` 对应的软件包名是 `python-igraph`：
+
+```bash
+conda install -c conda-forge \
+  "scanpy>=1.12,<1.13" \
+  "numba>=0.65" \
+  python-igraph \
+  leidenalg
+```
+
+可以使用以下命令检查聚类依赖是否安装成功：
+
+```bash
+python -c "import scanpy, numba, igraph, leidenalg; print(scanpy.__version__)"
+```
+
+正式支持目标是普通 CPython 3.14。free-threading `3.14t` 不是默认支持环境，
+因为 pysam 等原生扩展可能重新启用 GIL，并且尚未全部声明对 free-threading
+模式安全。
 
 ### 3. 编译 Rust 程序
 
@@ -233,6 +262,11 @@ qsub -cwd -l vf=128G,p=32 -binding linear:32 -P PROJECT -q QUEUE strint_job.sh
 ## 主要输出
 
 输出目录包含 `upstream/`、`alignment/`、`matrix/`、`qc/` 和 `logs/`。主要结果包括最终 read-to-cell 分配、带标签 BAM、基因/转录本表达矩阵、RNA QC、饱和度分析和可独立打开的单细胞 HTML 报告。
+
+RNA 聚类会输出 `matrix/<sample-id>.rna_cluster.tsv`，保留每个最终 cell，并记录
+UMAP 坐标、Leiden 类别、原始 UMI 数量和分析状态。报告会在
+**Cells > RNA Cluster Analysis** 中使用同一组坐标绘制 RNA 类别 UMAP 和原始
+UMI 数量 UMAP。新环境第一次运行 Scanpy 时，Numba 初始化缓存可能会使该次运行稍慢。
 
 ## 测试
 
