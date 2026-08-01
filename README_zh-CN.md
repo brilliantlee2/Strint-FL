@@ -62,7 +62,15 @@ Conda 中的 `rust` 包已经同时提供 `rustc` 和 `cargo`，不要再单独�
 
 ```bash
 conda env create -f environment.yml
-conda activate strint-rust
+conda activate strint
+```
+
+如果 Conda 已配置为使用 `libmamba`，但当前没有安装对应的 solver 插件，可以在
+创建环境时一次性指定经典求解器：
+
+```bash
+CONDA_SOLVER=classic CONDA_CHANNEL_PRIORITY=strict \
+  conda env create -f environment.yml
 ```
 
 检查软件：
@@ -76,17 +84,56 @@ minimap2 --version
 bedtools --version
 ```
 
-如果受限集群中 Conda 无法解析 `bioframe` 或 `fast-edit-distance`，激活环境后执行：
+环境文件会先解析 Conda 软件包，然后通过 pip 安装 `pysam`、`bioframe` 和
+`fast-edit-distance`。如果受限集群中 pip 安装阶段失败，激活环境后重新执行：
 
 ```bash
-python -m pip install bioframe fast-edit-distance
+python -m pip install \
+  "pysam>=0.24,<0.25" \
+  "bioframe>=0.8,<0.9" \
+  "fast-edit-distance>=1.2,<1.3"
 ```
 
-如果已经存在 Python 3.11 环境，也可以单独安装 Python 依赖：
+如果已经存在 CPython 3.11 环境，也可以单独安装 Python 依赖：
 
 ```bash
 python -m pip install -r requirements.txt
 ```
+
+RNA Cluster Analysis 新增以下直接 Python 依赖：
+
+```text
+scanpy>=1.11,<1.12
+anndata>=0.12,<0.13
+numpy>=2.4,<2.5
+scipy>=1.17,<1.18
+numba>=0.66,<0.67
+igraph>=1.0,<1.1
+leidenalg>=0.12,<0.13
+```
+
+在 Conda 中，`igraph` 对应的软件包名是 `python-igraph`：
+
+```bash
+conda install -c conda-forge \
+  "scanpy>=1.11,<1.12" \
+  "anndata>=0.12,<0.13" \
+  "numpy>=2.4,<2.5" \
+  "scipy>=1.17,<1.18" \
+  "numba>=0.66,<0.67" \
+  "python-igraph>=1.0,<1.1" \
+  "leidenalg>=0.12,<0.13"
+```
+
+可以使用以下命令检查聚类依赖是否安装成功：
+
+```bash
+python -c "import scanpy, anndata, numba, igraph, leidenalg; print(scanpy.__version__)"
+```
+
+正式支持并测试的目标是 CPython 3.11。环境将 Scanpy 固定在 1.11 版本线，
+AnnData 固定在 0.12 版本线、NumPy 固定在 2.4 版本线、Numba 固定在 0.66
+版本线。这些范围对应本版本已经验证通过的依赖组合，同时允许安装兼容的补丁更新。
 
 ### 3. 编译 Rust 程序
 
@@ -209,7 +256,7 @@ bash run_all_mixed_species.sh \
 
 set -euo pipefail
 source ~/anaconda3/etc/profile.d/conda.sh
-conda activate strint-rust
+conda activate strint
 
 bash /path/to/Strint-FL/run_all.sh \
   --fastq /data/sample.fastq.gz \
@@ -233,6 +280,11 @@ qsub -cwd -l vf=128G,p=32 -binding linear:32 -P PROJECT -q QUEUE strint_job.sh
 ## 主要输出
 
 输出目录包含 `upstream/`、`alignment/`、`matrix/`、`qc/` 和 `logs/`。主要结果包括最终 read-to-cell 分配、带标签 BAM、基因/转录本表达矩阵、RNA QC、饱和度分析和可独立打开的单细胞 HTML 报告。
+
+RNA 聚类会输出 `matrix/<sample-id>.rna_cluster.tsv`，保留每个最终 cell，并记录
+UMAP 坐标、Leiden 类别、原始 UMI 数量和分析状态。报告会在
+**Cells > RNA Cluster Analysis** 中使用同一组坐标绘制 RNA 类别 UMAP 和原始
+UMI 数量 UMAP。新环境第一次运行 Scanpy 时，Numba 初始化缓存可能会使该次运行稍慢。
 
 ## 测试
 
