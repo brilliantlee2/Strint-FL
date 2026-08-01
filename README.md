@@ -62,7 +62,15 @@ The Conda `rust` package includes both `rustc` and `cargo`; do not add a separat
 
 ```bash
 conda env create -f environment.yml
-conda activate strint-rust
+conda activate strint
+```
+
+If Conda is configured to use `libmamba` but that solver plugin is not
+available, create the environment once with the classic solver:
+
+```bash
+CONDA_SOLVER=classic CONDA_CHANNEL_PRIORITY=strict \
+  conda env create -f environment.yml
 ```
 
 Verify the tools:
@@ -76,13 +84,18 @@ minimap2 --version
 bedtools --version
 ```
 
-If `bioframe` or `fast-edit-distance` cannot be solved by Conda on a restricted cluster, install them after activating the environment:
+The environment file installs `pysam`, `bioframe`, and `fast-edit-distance`
+through pip after resolving the Conda packages. If that pip phase fails on a
+restricted cluster, activate the environment and retry it explicitly:
 
 ```bash
-python -m pip install bioframe fast-edit-distance
+python -m pip install \
+  "pysam>=0.24,<0.25" \
+  "bioframe>=0.8,<0.9" \
+  "fast-edit-distance>=1.2,<1.3"
 ```
 
-For an existing standard CPython 3.14 environment, Python dependencies can
+For an existing CPython 3.11 environment, Python dependencies can
 instead be installed with:
 
 ```bash
@@ -92,31 +105,38 @@ python -m pip install -r requirements.txt
 RNA Cluster Analysis adds these direct Python dependencies:
 
 ```text
-scanpy>=1.12,<1.13
-numba>=0.65
-igraph
-leidenalg
+scanpy>=1.11,<1.12
+anndata>=0.12,<0.13
+numpy>=2.4,<2.5
+scipy>=1.17,<1.18
+numba>=0.66,<0.67
+igraph>=1.0,<1.1
+leidenalg>=0.12,<0.13
 ```
 
 With Conda, the `igraph` package is named `python-igraph`:
 
 ```bash
 conda install -c conda-forge \
-  "scanpy>=1.12,<1.13" \
-  "numba>=0.65" \
-  python-igraph \
-  leidenalg
+  "scanpy>=1.11,<1.12" \
+  "anndata>=0.12,<0.13" \
+  "numpy>=2.4,<2.5" \
+  "scipy>=1.17,<1.18" \
+  "numba>=0.66,<0.67" \
+  "python-igraph>=1.0,<1.1" \
+  "leidenalg>=0.12,<0.13"
 ```
 
 Verify the clustering dependencies with:
 
 ```bash
-python -c "import scanpy, numba, igraph, leidenalg; print(scanpy.__version__)"
+python -c "import scanpy, anndata, numba, igraph, leidenalg; print(scanpy.__version__)"
 ```
 
-Standard CPython 3.14 is the supported target. The free-threading `3.14t`
-build is not the default supported environment because native extensions such
-as pysam may re-enable the GIL and have not all declared free-threading safety.
+CPython 3.11 is the supported and tested target. The environment pins Scanpy
+to the 1.11 release line, AnnData to 0.12, NumPy to 2.4, and Numba to 0.66.
+These ranges reproduce the dependency combination validated for this release
+while allowing compatible patch updates.
 
 ### 3. Build the Rust binaries
 
@@ -239,7 +259,7 @@ Create `strint_job.sh`:
 
 set -euo pipefail
 source ~/anaconda3/etc/profile.d/conda.sh
-conda activate strint-rust
+conda activate strint
 
 bash /path/to/Strint-FL/run_all.sh \
   --fastq /data/sample.fastq.gz \
