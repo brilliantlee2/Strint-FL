@@ -444,7 +444,7 @@ require_file "${GENE_GTF}" "gene GTF"
 require_file "${ISOFORM_GTF}" "isoform GTF"
 require_file "${SCRIPT_DIR}/main.py" "main.py"
 
-for script in prepare_read_tags.py add_cb_ur_tags.py assign_genes.py add_gene_tags.py cluster_umis_allbam.py cell_umi_gene_table.py gene_expression.py assign_transcripts.py isoform_expression.py rna_qc_metrics.py Saturation.py read_qc_summary.py build_report.py generate_26bp_whitelists.py generate_knee_plots.py; do
+for script in prepare_read_tags.py add_cb_ur_tags.py assign_genes.py add_gene_tags.py cluster_umis_allbam.py cell_umi_gene_table.py gene_expression.py rna_cluster_analysis.py assign_transcripts.py isoform_expression.py rna_qc_metrics.py Saturation.py read_qc_summary.py build_report.py generate_26bp_whitelists.py generate_knee_plots.py; do
   require_file "${DOWNSTREAM_DIR}/${script}" "${script}"
 done
 
@@ -648,6 +648,10 @@ run_stage gene_expression "${DOWNSTREAM_DIR}/gene_expression.py" \
   --output "${SAMPLE_ID}.gene_expression.tsv" \
   "${SAMPLE_ID}.filtered.tagged.sorted.bam" 2>&1 | tee -a "${GENE_LOG}"
 
+python3 "${DOWNSTREAM_DIR}/rna_cluster_analysis.py" \
+  --input "${SAMPLE_ID}.gene_expression.tsv" \
+  --output "${SAMPLE_ID}.rna_cluster.tsv" 2>&1 | tee -a "${GENE_LOG}"
+
 popd >/dev/null
 step_end "Step 4/6"
 
@@ -737,6 +741,7 @@ BUILD_REPORT_ARGS=(
   --read-qc-json "${SAMPLE_ID}.read_qc_summary.json"
   --parameters-tsv "${PARAMETERS_TSV}"
   --per-cell-qc-tsv "${SAMPLE_ID}.per_cell_qc.tsv"
+  --rna-cluster-tsv "${MATRIX_DIR}/${SAMPLE_ID}.rna_cluster.tsv"
   --barcode-counts-3p-tsv "${UPSTREAM_DIR}/barcode_counts_3p.tsv"
   --barcode-counts-5p-tsv "${UPSTREAM_DIR}/barcode_counts_5p.tsv"
   --whitelist-3p "${UPSTREAM_DIR}/whitelist_3p.csv"
@@ -774,6 +779,7 @@ if [[ "${SKIP_MATCHED_FASTQ}" -eq 0 ]]; then
 fi
 echo "  tagged bam              : ${MATRIX_DIR}/${SAMPLE_ID}.filtered.tagged.sorted.bam"
 echo "  gene expression         : ${MATRIX_DIR}/${SAMPLE_ID}.gene_expression.tsv"
+echo "  RNA cluster table       : ${MATRIX_DIR}/${SAMPLE_ID}.rna_cluster.tsv"
 if [[ "${SKIP_ISOFORM}" -eq 0 ]]; then
   echo "  isoform expression      : ${MATRIX_DIR}/${SAMPLE_ID}.isoform_expression.tsv"
 else
