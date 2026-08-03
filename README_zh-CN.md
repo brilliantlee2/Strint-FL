@@ -1,7 +1,7 @@
 [![English](https://img.shields.io/badge/Language-English-2563eb)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-0f766e)](README_zh-CN.md)
 
-# Strint Rust 0.0.3.5
+# Strint Rust
 
 Strint Rust 是一个面向全长单细胞 RNA 测序数据的分析流程。它整合了 Rust 实现的 barcode 矫正、read 标签添加、基因/转录本分配、UMI 聚类、表达矩阵生成，以及 Python 实现的流程辅助、QC、饱和度分析和离线 HTML 报告。
 

@@ -1,7 +1,7 @@
 [![English](https://img.shields.io/badge/Language-English-2563eb)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-0f766e)](README_zh-CN.md)
 
-# Strint Rust 0.0.3.5
+# Strint Rust
 
 Strint Rust is an analysis workflow for full-length single-cell RNA sequencing. It combines a Rust implementation of barcode correction, read tagging, gene/transcript assignment, UMI clustering, matrix generation, QC, saturation analysis, and an offline HTML report with Python workflow helpers.
 
