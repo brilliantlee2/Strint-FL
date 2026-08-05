@@ -15,6 +15,9 @@ import pandas as pd
 
 BARCODE_RANK_MAX_POINTS = 20000
 BEAD_CHUNK_ROWS = 1_000_000
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPORT_TEMPLATE_PATH = SCRIPT_DIR / "report_template.html"
+PLOTLY_JS_PATH = SCRIPT_DIR / "plotly-2.26.0.min.js"
 PARAMETER_DISPLAY_ORDER = [
     "sample_id",
     "fastq",
@@ -162,8 +165,7 @@ def html_table(rows, headers=("Metric", "Value"), class_name="report-table"):
 
 
 def load_report_template():
-    template_path = Path(__file__).resolve().parent / "report_template.html"
-    text = template_path.read_text(encoding="utf-8", errors="ignore")
+    text = REPORT_TEMPLATE_PATH.read_text(encoding="utf-8", errors="ignore")
 
     # The PBMC-derived template includes one malformed style/script splice and a
     # large "Relocated from body" CSS blob that breaks HTML parsing in some
@@ -189,7 +191,17 @@ def load_report_template():
         if body_after_head is None:
             text = text.replace("</head>", "</head>\n<body>", 1)
 
+    required_markers = ["__SAMPLE__", "__REPORT_BODY__", "__PLOTLY_LOADER__"]
+    missing = [marker for marker in required_markers if marker not in text]
+    if missing:
+        raise ValueError("report template is missing: " + ", ".join(missing))
     return text
+
+
+def embedded_plotly_loader():
+    if not PLOTLY_JS_PATH.is_file():
+        raise FileNotFoundError(f"missing bundled Plotly runtime: {PLOTLY_JS_PATH}")
+    return f"<script>{PLOTLY_JS_PATH.read_text(encoding='utf-8')}</script>"
 
 
 def pbmc_metric_rows(rows):
@@ -962,28 +974,6 @@ def build_html(args, payload, sections):
   }}
 
   const rankData = [];
-  if (payload.barcodeRank3p) {{
-    rankData.push({{
-      x: payload.barcodeRank3p.rank,
-      y: payload.barcodeRank3p.count,
-      type: "scatter",
-      mode: "lines",
-      name: "3' barcode",
-      line: {{color: "#1358A2", width: 3}},
-      hovertemplate: "3' barcode<br>Rank: %{{x:,.0f}}<br>Reads: %{{y:,.0f}}<extra></extra>"
-    }});
-    if (payload.barcodeRank3p.threshold) {{
-      rankData.push({{
-        x: payload.barcodeRank3p.rank,
-        y: payload.barcodeRank3p.rank.map(() => payload.barcodeRank3p.threshold),
-        type: "scatter",
-        mode: "lines",
-        name: "3' threshold",
-        line: {{color: "#1358A2", width: 1.5, dash: "dot"}},
-        hovertemplate: "3' threshold<br>Reads: %{{y:,.0f}}<extra></extra>"
-      }});
-    }}
-  }}
   if (payload.barcodeRank5p) {{
     rankData.push({{
       x: payload.barcodeRank5p.rank,
@@ -1031,9 +1021,8 @@ def build_html(args, payload, sections):
   }});
   const rankNote = document.getElementById("barcode-rank-note");
   if (rankNote) {{
-    const n3 = payload.barcodeRank3p ? payload.barcodeRank3p.original_points : 0;
     const n5 = payload.barcodeRank5p ? payload.barcodeRank5p.original_points : 0;
-    rankNote.textContent = `Displayed with log-rank sampling. 3' points: ${{n3.toLocaleString()}}; 5' points: ${{n5.toLocaleString()}}.`;
+    rankNote.textContent = `Displayed with log-rank sampling. 5' points: ${{n5.toLocaleString()}}.`;
   }}
 
   const beadPalette = ["rgb(102,194,165)", "rgb(252,141,98)", "rgb(141,160,203)", "rgb(231,138,195)", "rgb(166,216,84)", "rgb(255,217,47)", "rgb(229,196,148)", "rgb(179,179,179)"];
@@ -1139,6 +1128,7 @@ def build_html(args, payload, sections):
     return (
         template
         .replace("__SAMPLE__", html.escape(args.sample_id))
+        .replace("__PLOTLY_LOADER__", embedded_plotly_loader())
         .replace("__REPORT_BODY__", report_body)
     )
 
@@ -1187,7 +1177,6 @@ def main():
         },
         "readQc": read_qc,
         "saturation": dataframe_payload(saturation_df) if not saturation_df.empty else {},
-        "barcodeRank3p": barcode_rank_payload(args.barcode_counts_3p_tsv, args.whitelist_3p),
         "barcodeRank5p": barcode_rank_payload(args.barcode_counts_5p_tsv, args.whitelist_5p),
         "beads": beads_per_droplet_payload(args.read_assigned_cell),
         "rnaCluster": rna_clusters,
@@ -1230,7 +1219,7 @@ def main():
             "Beads to cells",
             "bead-detail",
             help_dl([
-                ("Left", "Barcode rank plot showing abundance-ranked corrected barcodes. The 3' and 5' barcode curves are overlaid in different colors."),
+                ("Left", "Barcode rank plot showing abundance-ranked corrected 5' barcodes."),
                 ("Right", "Distribution of the number of unique corrected barcodes associated with each final cell."),
             ]),
             width_px=230,

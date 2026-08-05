@@ -447,6 +447,8 @@ require_file "${SCRIPT_DIR}/main.py" "main.py"
 for script in prepare_read_tags.py add_cb_ur_tags.py assign_genes.py add_gene_tags.py cluster_umis_allbam.py cell_umi_gene_table.py gene_expression.py rna_cluster_analysis.py assign_transcripts.py isoform_expression.py rna_qc_metrics.py Saturation.py read_qc_summary.py build_report.py generate_26bp_whitelists.py generate_knee_plots.py; do
   require_file "${DOWNSTREAM_DIR}/${script}" "${script}"
 done
+require_file "${DOWNSTREAM_DIR}/report_template.html" "report_template.html"
+require_file "${DOWNSTREAM_DIR}/plotly-2.26.0.min.js" "plotly-2.26.0.min.js"
 
 if [[ -f "${SCRIPT_DIR}/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
   log "Rust project detected under StrintRust0.0.3.5, attempting cargo build --release"
