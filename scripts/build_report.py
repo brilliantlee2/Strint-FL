@@ -254,10 +254,10 @@ def pbmc_summary_cards(card_rows):
 def summary_violin_cards(cards):
     blocks = []
     for card in cards:
+        plot_id = str(card.get("plot_id", "")).strip()
         image_html = (
-            f'<img src="{html.escape(card.get("src", ""))}" alt="{html.escape(card.get("title", ""))}" '
-            'class="violin-image" />'
-            if card.get("src")
+            f'<div id="{html.escape(plot_id)}" class="summary-violin-plot"></div>'
+            if plot_id
             else f'<div class="empty-plot">{html.escape(card.get("title", "NA"))}</div>'
         )
         blocks.append(
@@ -405,7 +405,15 @@ def barcode_rank_payload(path, whitelist_path):
         return None
     total = count_data_rows(path)
     if total == 0:
-        return {"rank": [], "count": [], "threshold": None, "displayed_points": 0, "original_points": 0}
+        return {
+            "rank": [],
+            "count": [],
+            "is_true": [],
+            "displayed_points": 0,
+            "original_points": 0,
+            "true_points": 0,
+            "noise_points": 0,
+        }
     if total <= BARCODE_RANK_MAX_POINTS:
         keep_ranks = set(range(1, total + 1))
     else:
@@ -421,23 +429,31 @@ def barcode_rank_payload(path, whitelist_path):
     whitelist = load_whitelist(whitelist_path)
     ranks = []
     counts = []
-    threshold = None
+    is_true = []
+    true_points = 0
+    noise_points = 0
     with open(path, "r", encoding="utf-8", errors="ignore", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         for rank, row in enumerate(reader, start=1):
             barcode = str(row.get("barcode", "")).strip()
             count = value_to_float(row.get("count", 0)) or 0.0
-            if whitelist and barcode in whitelist:
-                threshold = count if threshold is None else min(threshold, count)
+            called = not whitelist or barcode in whitelist
+            if called:
+                true_points += 1
+            else:
+                noise_points += 1
             if rank in keep_ranks:
                 ranks.append(rank)
                 counts.append(count)
+                is_true.append(called)
     return {
         "rank": ranks,
         "count": counts,
-        "threshold": threshold,
+        "is_true": is_true,
         "displayed_points": len(ranks),
         "original_points": total,
+        "true_points": true_points,
+        "noise_points": noise_points,
     }
 
 
@@ -695,6 +711,16 @@ def new_report_markup(sections):
     box-shadow: var(--shadow-sm);
   }}
   .plot-panel {{ overflow: hidden; }}
+  .plot-title {{
+    margin: 0 0 0.75rem;
+    padding: 0;
+    border: 0;
+    color: var(--text-primary);
+    font-family: Inter, Arial, sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: center;
+  }}
   .stats-table-container {{ width: 100%; overflow-x: auto; }}
   .stats-table {{
     width: 100%;
@@ -768,6 +794,11 @@ def new_report_markup(sections):
     height: 390px;
     object-fit: contain;
   }}
+  .summary-violin-plot {{
+    width: 100%;
+    height: 390px;
+    min-width: 0;
+  }}
   .empty-plot {{ color: var(--text-muted); }}
   @media (max-width: 900px) {{
     .report-grid.two,
@@ -806,10 +837,12 @@ def new_report_markup(sections):
       {sections["beads_bar"]}
       <div class="report-grid two">
         <div class="plot-panel">
+          <h4 class="plot-title">RNA Barcode Rank Plot</h4>
           <div id="barcode-rank" class="dynamic-plot"></div>
           <div class="dynamic-note" id="barcode-rank-note"></div>
         </div>
         <div class="plot-panel">
+          <h4 class="plot-title">Bead Count Distribution</h4>
           <div id="beads-per-droplet" class="dynamic-plot"></div>
           <div class="dynamic-note" id="beads-note"></div>
         </div>
@@ -820,9 +853,11 @@ def new_report_markup(sections):
       {sections["rna_cluster_bar"]}
       <div class="report-grid two">
         <div class="plot-panel">
+          <h4 class="plot-title">RNA Cluster Assignment</h4>
           <div id="rna-cluster-assignment" class="dynamic-plot-wide"></div>
         </div>
         <div class="plot-panel">
+          <h4 class="plot-title">UMI Count</h4>
           <div id="rna-umi-counts" class="dynamic-plot-wide"></div>
         </div>
       </div>
@@ -863,14 +898,14 @@ def build_html(args, payload, sections):
   const plotConfig = {{
     responsive: true,
     displaylogo: false,
-    modeBarButtonsToRemove: ["autoScale2d", "hoverClosestCartesian", "hoverCompareCartesian", "lasso2d", "sendDataToCloud", "toggleSpikelines", "zoomIn2d", "zoomOut2d"]
+    displayModeBar: false
   }};
   const baseTemplate = {{
     layout: {{
-      colorway: ["#636efa", "#EF553B", "#00cc96", "#ab63fa", "#FFA15A", "#19d3f3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52"],
-      font: {{color: "#2a3f5f"}},
-      paper_bgcolor: "white",
-      plot_bgcolor: "#E5ECF6",
+      colorway: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"],
+      font: {{family: "Arial, sans-serif", color: "#2c3e50"}},
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
       hoverlabel: {{align: "left"}},
       title: {{x: 0.05}}
     }}
@@ -880,8 +915,8 @@ def build_html(args, payload, sections):
     margin: {{t: 60, l: 60, r: 20, b: 55}},
     template: baseTemplate,
     plot_bgcolor: "rgba(0,0,0,0)",
-    paper_bgcolor: "white",
-    font: {{color: "#2a3f5f"}},
+    paper_bgcolor: "rgba(0,0,0,0)",
+    font: {{family: "Arial, sans-serif", color: "#2c3e50"}},
     xaxis: {{
       automargin: true,
       gridcolor: "lightgray",
@@ -947,7 +982,7 @@ def build_html(args, payload, sections):
     x: payload.readSummary.labels,
     y: payload.readSummary.counts,
     type: "bar",
-    marker: {{color: "#337ab7"}},
+    marker: {{color: "rgba(15, 76, 129, 0.8)", line: {{color: "#0F4C81", width: 1}}}},
     hovertemplate: "%{{x}}<br>%{{y:,.0f}} reads<extra></extra>"
   }}], {{
     height: 420,
@@ -958,91 +993,245 @@ def build_html(args, payload, sections):
 
   const rq = payload.readQc || {{}};
   if (rq.quality) {{
-    plotIf("read-qc-quality", [{{x: rq.quality.bins || [], y: rq.quality.counts || [], type: "bar", marker: {{color: "#337ab7"}}}}], pbmcLineLayout("Read quality", "Mean Q score", "Reads", {{
+    plotIf("read-qc-quality", [{{x: rq.quality.bins || [], y: rq.quality.counts || [], type: "bar", marker: {{color: "rgba(15, 76, 129, 0.8)", line: {{color: "#0F4C81", width: 1}}}}}}], pbmcLineLayout("Read quality", "Mean Q score", "Reads", {{
       height: 360
     }}));
   }}
   if (rq.length) {{
-    plotIf("read-qc-length", [{{x: rq.length.bins_kb || [], y: rq.length.counts || [], type: "bar", marker: {{color: "#169c9c"}}}}], pbmcLineLayout("Read length", "Read length (kb)", "Reads", {{
+    plotIf("read-qc-length", [{{x: rq.length.bins_kb || [], y: rq.length.counts || [], type: "bar", marker: {{color: "rgba(46, 124, 188, 0.8)", line: {{color: "#2E7CBC", width: 1}}}}}}], pbmcLineLayout("Read length", "Read length (kb)", "Reads", {{
       height: 360
     }}));
   }}
   if (rq.yield_above_length) {{
-    plotIf("read-qc-yield", [{{x: rq.yield_above_length.x_kb || [], y: rq.yield_above_length.y_gb || [], type: "scatter", mode: "lines", line: {{color: "#e18435", width: 3}}}}], pbmcLineLayout("Base yield above read length", "Read length cutoff (kb)", "Yield above cutoff (Gb)", {{
+    plotIf("read-qc-yield", [{{x: rq.yield_above_length.x_kb || [], y: rq.yield_above_length.y_gb || [], type: "scatter", mode: "lines", line: {{color: "#1358A2", width: 3}}}}], pbmcLineLayout("Base yield above read length", "Read length cutoff (kb)", "Yield above cutoff (Gb)", {{
       height: 360
     }}));
   }}
 
+  const perCell = payload.perCell || {{}};
+  function plotTemplateViolin(id, values, label) {{
+    const cleanValues = (values || []).filter(value => Number.isFinite(Number(value))).map(Number);
+    plotIf(id, [{{
+      type: "violin",
+      x: cleanValues.map(() => label),
+      y: cleanValues,
+      box: {{
+        visible: true,
+        fillcolor: "rgba(255,255,255,0.8)",
+        line: {{color: "#2980b9", width: 1}}
+      }},
+      meanline: {{visible: true, color: "#2980b9", width: 2}},
+      points: false,
+      fillcolor: "rgba(41, 128, 185, 0.8)",
+      line: {{color: "#2980b9"}},
+      hoveron: "violins",
+      name: "",
+      hovertemplate: "%{{y:,.0f}}<extra></extra>"
+    }}], {{
+      height: 390,
+      margin: {{l: 25, r: 0, t: 40, b: 25}},
+      plot_bgcolor: "white",
+      paper_bgcolor: "white",
+      hovermode: "closest",
+      showlegend: false,
+      font: {{family: "Arial, sans-serif", size: 9, color: "#2c3e50"}},
+      xaxis: {{
+        title: {{text: ""}},
+        showgrid: false,
+        zeroline: false,
+        showticklabels: true,
+        tickfont: {{size: 12, color: "#2c3e50"}}
+      }},
+      yaxis: {{
+        title: {{text: ""}},
+        showgrid: true,
+        gridcolor: "rgba(0,0,0,0.1)",
+        zeroline: false
+      }},
+      annotations: [{{
+        text: "Count",
+        x: 0,
+        y: 1,
+        yshift: 30,
+        xref: "paper",
+        yref: "paper",
+        showarrow: false,
+        xanchor: "left",
+        yanchor: "top",
+        font: {{family: "Inter", size: 12, color: "#2c3e50"}}
+      }}]
+    }});
+  }}
+  plotTemplateViolin("violin-reads", perCell.reads, "Reads");
+  plotTemplateViolin("violin-umis", perCell.umis, "UMIs");
+  plotTemplateViolin("violin-genes", perCell.genes, "Genes");
+
   const rankData = [];
   if (payload.barcodeRank5p) {{
+    const rankMask = payload.barcodeRank5p.is_true || [];
     rankData.push({{
       x: payload.barcodeRank5p.rank,
-      y: payload.barcodeRank5p.count,
-      type: "scatter",
+      y: payload.barcodeRank5p.count.map((value, index) => rankMask[index] ? value : null),
+      type: "scattergl",
       mode: "lines",
-      name: "5' barcode",
-      line: {{color: "#EF7C23", width: 3}},
-      hovertemplate: "5' barcode<br>Rank: %{{x:,.0f}}<br>Reads: %{{y:,.0f}}<extra></extra>"
+      name: "TRUE",
+      connectgaps: false,
+      line: {{color: "#1358A2", width: 3, simplify: false}},
+      hovertemplate: "TRUE<br>Rank: %{{x:,.0f}}<br>Read counts: %{{y:,.0f}}<extra></extra>"
     }});
-    if (payload.barcodeRank5p.threshold) {{
-      rankData.push({{
-        x: payload.barcodeRank5p.rank,
-        y: payload.barcodeRank5p.rank.map(() => payload.barcodeRank5p.threshold),
-        type: "scatter",
-        mode: "lines",
-        name: "5' threshold",
-        line: {{color: "#EF7C23", width: 1.5, dash: "dot"}},
-        hovertemplate: "5' threshold<br>Reads: %{{y:,.0f}}<extra></extra>"
-      }});
-    }}
+    rankData.push({{
+      x: payload.barcodeRank5p.rank,
+      y: payload.barcodeRank5p.count.map((value, index) => rankMask[index] ? null : value),
+      type: "scattergl",
+      mode: "lines",
+      name: "NOISE",
+      connectgaps: false,
+      line: {{color: "#DDDDDD", width: 3, simplify: false}},
+      hovertemplate: "NOISE<br>Rank: %{{x:,.0f}}<br>Read counts: %{{y:,.0f}}<extra></extra>"
+    }});
   }}
   plotIf("barcode-rank", rankData, {{
     height: 360,
-    title: {{text: "Barcode rank plot", font: {{size: 14}}}},
+    margin: {{l: 30, r: 20, t: 36, b: 40}},
+    plot_bgcolor: "rgba(0,0,0,0)",
+    paper_bgcolor: "white",
+    hovermode: "closest",
     xaxis: {{
-      title: {{text: "Barcode in Rank-descending Order", font: {{size: 12}}}},
       type: "log",
-      fixedrange: true,
+      title: {{text: "Barcode in Rank-descending Order", standoff: 12, font: {{size: 12, color: "#2c3e50"}}}},
+      tickfont: {{size: 10, color: "#2c3e50"}},
       color: "black",
-      linecolor: "black",
+      showline: true,
+      ticks: "outside",
+      ticklen: 4,
+      tickwidth: 1,
+      tickcolor: "black",
+      showgrid: true,
+      gridcolor: "lightgrey",
       linewidth: 1,
-      showline: true
+      fixedrange: true,
+      automargin: false,
+      linecolor: "black"
     }},
     yaxis: {{
-      title: {{text: "Read counts"}},
       type: "log",
-      fixedrange: true,
+      title: {{text: ""}},
+      tickfont: {{size: 10, color: "#2c3e50"}},
       color: "black",
-      linecolor: "black",
+      showline: true,
+      ticks: "outside",
+      ticklen: 4,
+      tickwidth: 1,
+      showgrid: true,
+      gridcolor: "lightgrey",
       linewidth: 1,
-      showline: true
+      fixedrange: true,
+      automargin: false,
+      linecolor: "black"
     }},
-    legend: {{orientation: "h", x: 0.02, y: 1.12}}
+    annotations: [{{
+      text: "Read Counts",
+      x: 0,
+      y: 1,
+      yshift: 30,
+      xref: "paper",
+      yref: "paper",
+      showarrow: false,
+      xanchor: "left",
+      yanchor: "top",
+      font: {{family: "Inter", size: 12, color: "#2c3e50"}}
+    }}],
+    showlegend: true,
+    legend: {{
+      orientation: "h",
+      x: 0.9,
+      y: 1,
+      xanchor: "center",
+      yanchor: "bottom",
+      itemsizing: "constant",
+      font: {{family: "Arial", size: 10, color: "black"}},
+      bgcolor: "rgba(255,255,255,0)",
+      borderwidth: 0
+    }}
   }});
   const rankNote = document.getElementById("barcode-rank-note");
   if (rankNote) {{
-    const n5 = payload.barcodeRank5p ? payload.barcodeRank5p.original_points : 0;
-    rankNote.textContent = `Displayed with log-rank sampling. 5' points: ${{n5.toLocaleString()}}.`;
+    const truePoints = payload.barcodeRank5p ? payload.barcodeRank5p.true_points : 0;
+    const noisePoints = payload.barcodeRank5p ? payload.barcodeRank5p.noise_points : 0;
+    rankNote.textContent = `5' barcode ranks: TRUE ${{truePoints.toLocaleString()}}, NOISE ${{noisePoints.toLocaleString()}}.`;
   }}
 
-  const beadPalette = ["rgb(102,194,165)", "rgb(252,141,98)", "rgb(141,160,203)", "rgb(231,138,195)", "rgb(166,216,84)", "rgb(255,217,47)", "rgb(229,196,148)", "rgb(179,179,179)"];
+  const beadPalette = [
+    "rgba(15, 76, 129, 0.8)",
+    "rgba(13, 96, 158, 0.8)",
+    "rgba(22, 110, 172, 0.8)",
+    "rgba(46, 124, 188, 0.8)",
+    "rgba(69, 138, 202, 0.8)",
+    "rgba(93, 152, 216, 0.8)",
+    "rgba(117, 166, 230, 0.8)",
+    "rgba(140, 180, 243, 0.8)",
+    "rgba(163, 194, 255, 0.8)"
+  ];
   const beadData = (payload.beads.x || []).map((x, i) => ({{
-    x: [String(x)],
+    x: [x],
     y: [payload.beads.y[i] || 0],
     type: "bar",
-    width: 0.9,
-    name: `${{x}}  ${{payload.beads.y[i] || 0}}`,
-    marker: {{color: beadPalette[i % beadPalette.length]}},
-    hovertemplate: "Merge Beads Num: %{{x}}<br>Count: %{{y:,.0f}}<extra></extra>"
+    width: 0.8,
+    name: `${{x}} ${{payload.beads.y[i] || 0}}`,
+    marker: {{
+      color: beadPalette[i % beadPalette.length],
+      line: {{color: beadPalette[i % beadPalette.length].replace("0.8", "1"), width: 1}}
+    }},
+    hovertemplate: `<b>${{x}} beads per droplet</b><br>Count: %{{y:,.0f}}<br><extra></extra>`
   }}));
+  const beadMax = Math.max(1, ...(payload.beads.x || []).map(Number));
   plotIf("beads-per-droplet", beadData, {{
     height: 360,
-    barmode: "relative",
-    title: {{text: `Total cell number ${{(payload.beads.n_cells || 0).toLocaleString()}}`, font: {{color: "black", family: "Arial", size: 18}}, x: 0.05, y: 0.95}},
-    margin: {{t: 50, l: 40, r: 10, b: 50}},
-    xaxis: {{title: {{text: "Number of beads per droplet", font: {{size: 12}}, standoff: 10}}, showgrid: false}},
-    yaxis: {{title: {{text: "Count", font: {{size: 13}}, standoff: 10}}, showgrid: false}},
-    legend: {{font: {{family: "Arial", size: 10}}, x: 0.8, y: 1}}
+    margin: {{l: 30, r: 20, t: 36, b: 40}},
+    xaxis: {{
+      title: {{text: "Number of beads per droplet", font: {{family: "Inter", size: 12, color: "#2c3e50"}}}},
+      showgrid: false,
+      zeroline: false,
+      tickfont: {{size: 10, color: "#2c3e50"}},
+      range: [0.3, beadMax + 0.7],
+      dtick: 1,
+      tick0: 1
+    }},
+    yaxis: {{
+      title: {{text: ""}},
+      showgrid: true,
+      gridcolor: "rgba(0,0,0,0.1)",
+      zeroline: false,
+      tickfont: {{size: 10, color: "#2c3e50"}}
+    }},
+    plot_bgcolor: "rgba(0,0,0,0)",
+    paper_bgcolor: "rgba(0,0,0,0)",
+    annotations: [{{
+      text: "Count",
+      xref: "paper",
+      yref: "paper",
+      x: 0,
+      y: 1,
+      showarrow: false,
+      font: {{family: "Inter", size: 14, color: "#2c3e50"}},
+      xanchor: "left",
+      yanchor: "top",
+      yshift: 30
+    }}],
+    showlegend: true,
+    legend: {{
+      x: 0.98,
+      y: 0.98,
+      xanchor: "right",
+      yanchor: "top",
+      bgcolor: "rgba(255,255,255,0.9)",
+      bordercolor: "rgba(0,0,0,0.2)",
+      borderwidth: 1,
+      font: {{size: 10}}
+    }},
+    font: {{family: "Arial, sans-serif"}},
+    bargap: 0.2,
+    bargroupgap: 0.1
   }});
   const beadsNote = document.getElementById("beads-note");
   if (beadsNote) beadsNote.textContent = `${{(payload.beads.n_cells || 0).toLocaleString()}} cells summarized from read_assigned_cell.csv.`;
@@ -1054,7 +1243,7 @@ def build_html(args, payload, sections):
     if (b === "unassigned") return -1;
     return String(a).localeCompare(String(b), undefined, {{numeric: true}});
   }});
-  const clusterPalette = ["#3274A1", "#E1812C", "#3A923A", "#C03D3E", "#9372B2", "#845B53", "#D684BD", "#7F7F7F", "#A9AA35", "#2EABB8"];
+  const clusterPalette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf", "#13c2c2", "#bdb76b", "#6a5acd", "#20b2aa", "#ff6347"];
   const clusterTraces = clusterLabels.map((label, index) => {{
     const rows = rnaCells.filter(row => row.leiden === label);
     return {{
@@ -1067,21 +1256,44 @@ def build_html(args, payload, sections):
       name: label === "unassigned" ? "Unassigned" : `Cluster ${{label}}`,
       marker: {{
         color: label === "unassigned" ? "#B7BDC5" : clusterPalette[index % clusterPalette.length],
-        size: rnaCells.length > 20000 ? 3 : 5,
-        opacity: 0.82
+        size: 3,
+        opacity: 0.7
       }},
       hovertemplate: "Cell: %{{text}}<br>Cluster: " + label + "<br>UMIs: %{{customdata:,.0f}}<extra></extra>"
     }};
   }});
   const umapLayout = {{
-    height: 440,
-    margin: {{t: 55, l: 35, r: 20, b: 35}},
-    xaxis: {{title: {{text: "UMAP 1"}}, showgrid: false, zeroline: false, showticklabels: false, ticks: ""}},
-    yaxis: {{title: {{text: "UMAP 2"}}, showgrid: false, zeroline: false, showticklabels: false, ticks: "", scaleanchor: "x", scaleratio: 1}}
+    height: 400,
+    margin: {{l: 40, r: 20, t: 20, b: 60}},
+    plot_bgcolor: "rgba(0,0,0,0)",
+    paper_bgcolor: "rgba(0,0,0,0)",
+    font: {{family: "Arial, sans-serif"}},
+    xaxis: {{
+      title: {{text: "UMAP_1", font: {{size: 12, color: "#2c3e50"}}}},
+      showgrid: true,
+      gridcolor: "lightgray",
+      zeroline: false,
+      tickfont: {{size: 10, color: "#2c3e50"}}
+    }},
+    yaxis: {{
+      title: {{text: "UMAP_2", font: {{size: 12, color: "#2c3e50"}}}},
+      showgrid: true,
+      gridcolor: "lightgray",
+      zeroline: false,
+      tickfont: {{size: 10, color: "#2c3e50"}}
+    }}
   }};
   plotIf("rna-cluster-assignment", clusterTraces, Object.assign({{}}, umapLayout, {{
-    title: {{text: "RNA clusters", font: {{size: 14}}}},
-    legend: {{orientation: "v", x: 1.01, y: 1}}
+    showlegend: true,
+    legend: {{
+      title: {{text: "Cluster", font: {{size: 12}}}},
+      font: {{size: 10, family: "Arial"}},
+      itemsizing: "constant",
+      x: 1.02,
+      y: 1,
+      xanchor: "left",
+      yanchor: "top"
+    }}
   }}));
   plotIf("rna-umi-counts", [{{
     x: rnaCells.map(row => row.UMAP_1),
@@ -1094,29 +1306,36 @@ def build_html(args, payload, sections):
     marker: {{
       color: rnaCells.map(row => row.total_counts),
       colorscale: "Viridis",
-      size: rnaCells.length > 20000 ? 3 : 5,
-      opacity: 0.85,
-      colorbar: {{title: {{text: "UMI count"}}}}
+      size: 3,
+      opacity: 0.8,
+      colorbar: {{
+        title: {{text: "nUMI", font: {{size: 12}}}},
+        thickness: 15,
+        len: 0.8,
+        x: 1.02,
+        tickfont: {{size: 10}}
+      }}
     }},
     hovertemplate: "Cell: %{{text}}<br>Cluster: %{{customdata}}<br>UMIs: %{{marker.color:,.0f}}<extra></extra>"
   }}], Object.assign({{}}, umapLayout, {{
-    title: {{text: "UMI count", font: {{size: 14}}}}
+    margin: {{l: 40, r: 30, t: 20, b: 60}},
+    showlegend: false
   }}));
 
   const sat = payload.saturation || {{}};
-  plotIf("saturation-genes", [{{x: sat.reads_per_cell || [], y: sat.genes_per_cell || [], type: "scatter", mode: "lines", line: {{color: "#337ab7", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
+  plotIf("saturation-genes", [{{x: sat.reads_per_cell || [], y: sat.genes_per_cell || [], type: "scatter", mode: "lines", line: {{color: "#1358A2", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
     height: 400,
     title: {{text: "Median Genes per Cell", font: {{size: 14}}}},
     xaxis: {{title: {{text: "Mean Reads per Cell", font: {{size: 12}}}}, tickformat: "~s", hoverformat: ",.0f"}},
     yaxis: {{title: {{text: "Median Genes per Cell", standoff: 0}}}}
   }});
-  plotIf("saturation-umis", [{{x: sat.reads_per_cell || [], y: sat.umis_per_cell || [], type: "scatter", mode: "lines", line: {{color: "#337ab7", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
+  plotIf("saturation-umis", [{{x: sat.reads_per_cell || [], y: sat.umis_per_cell || [], type: "scatter", mode: "lines", line: {{color: "#1358A2", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
     height: 400,
     title: {{text: "Median UMI counts per cell", font: {{size: 14}}}},
     xaxis: {{title: {{text: "Mean Reads per Cell", font: {{size: 12}}}}, tickformat: "~s", hoverformat: ",.0f"}},
     yaxis: {{title: {{text: "Median UMI Counts per Cell"}}}}
   }});
-  plotIf("saturation-rate", [{{x: sat.reads_per_cell || [], y: (sat.saturation || []).map(v => v * 100), type: "scatter", mode: "lines", line: {{color: "#337ab7", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
+  plotIf("saturation-rate", [{{x: sat.reads_per_cell || [], y: (sat.saturation || []).map(v => v * 100), type: "scatter", mode: "lines", line: {{color: "#1358A2", width: 3}}, showlegend: false, hovertemplate: "x=%{{x}}<br>y=%{{y}}<extra></extra>"}}], {{
     height: 400,
     title: {{text: "Sequencing saturation", font: {{size: 14}}}},
     xaxis: {{title: {{text: "Mean Reads per Cell", font: {{size: 12}}}}, tickformat: "~s", hoverformat: ",.0f"}},
@@ -1147,15 +1366,15 @@ def main():
     summary_violin_rows = summary_violin_cards([
         {
             "title": "Reads per cell",
-            "src": violin_data_uri(per_cell.get("reads", []), "#337ab7", "Reads per cell", "Reads"),
+            "plot_id": "violin-reads",
         },
         {
             "title": "UMIs per cell",
-            "src": violin_data_uri(per_cell.get("umis", []), "#169c9c", "UMIs per cell", "UMIs"),
+            "plot_id": "violin-umis",
         },
         {
             "title": "Genes per cell",
-            "src": violin_data_uri(per_cell.get("genes", []), "#4f9d69", "Genes per cell", "Genes"),
+            "plot_id": "violin-genes",
         },
     ])
 
@@ -1176,6 +1395,7 @@ def main():
             "counts": [value_to_float(row["Read count"]) or 0 for row in read_summary_rows if row["Metric"] not in {"Raw reads", "Clean reads"}],
         },
         "readQc": read_qc,
+        "perCell": per_cell,
         "saturation": dataframe_payload(saturation_df) if not saturation_df.empty else {},
         "barcodeRank5p": barcode_rank_payload(args.barcode_counts_5p_tsv, args.whitelist_5p),
         "beads": beads_per_droplet_payload(args.read_assigned_cell),
